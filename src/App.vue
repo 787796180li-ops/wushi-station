@@ -22,7 +22,7 @@ const states = [
 const currentStateId = ref('unselected')
 const userMessage = ref('')
 const isTyping = ref(false)
-const displayedQuote = ref('我无法替你解决学术数据的推翻，也无法改变首尔的天气，\n但我为你建了一个允许你碎掉的空间。\n\n>>> 观测站已就绪。') // 初始极简承托文案
+const displayedQuote = ref('我无法替你解决学术数据的推翻，\n也无法改变首尔的天气，\n但我为你建了一个允许你碎掉的空间。\n\n>>> 观测站已就绪。') // 初始极简承托文案
 const isLoading = ref(false)
 
 const activeState = computed(() => {
@@ -1443,7 +1443,7 @@ async function triggerFoodRoulette() {
 /* 赋予文字生命体征：明显但不喧宾夺主的亮暗呼吸特效 */
 @keyframes text-breath {
   0%, 100% {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.5);
     text-shadow: 0 0 0px rgba(255, 255, 255, 0);
   }
   50% {
