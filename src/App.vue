@@ -141,86 +141,10 @@ const currentClothingTip = ref('计算体表防护方程...')
 const isFetchingWeatherAdvice = ref(false)
 
 async function generateWeatherAdvice(stateId, data) {
-  const meta = weatherMeta[stateId] || weatherMeta.unknown
-  const fallbackTip = weatherTips[stateId] ? weatherTips[stateId][Math.floor(Math.random() * weatherTips[stateId].length)] : weatherTips.unknown[0]
-  const fallbackTravel = weatherAdvice[stateId] ? weatherAdvice[stateId].travel : weatherAdvice.unknown.travel
-  const fallbackClothes = weatherAdvice[stateId] ? weatherAdvice[stateId].clothes : weatherAdvice.unknown.clothes
-
-  const apiKey = import.meta.env.VITE_SILICONFLOW_API_KEY?.trim()
-  if (!apiKey || apiKey.includes('在这里填入')) {
-    currentWeatherTip.value = fallbackTip
-    currentTravelTip.value = fallbackTravel
-    currentClothingTip.value = fallbackClothes
-    return
-  }
-
-  if (stateId === 'loading') {
-    currentWeatherTip.value = '>>> 连接大型晶体管列阵中...'
-    return
-  }
-
-  isFetchingWeatherAdvice.value = true
-  
-  currentWeatherTip.value = '>>> 同步计算微距及宏观环境量子坍缩效应...'
-  currentTravelTip.value = '>>> 动态生成安全行进点阵图...'
-  currentClothingTip.value = '>>> 生物学防御掩体装配推演中...'
-
-  const stateName = meta.label
-  const tempStr = data ? `温度 ${data.temp}°C, 体感 ${data.feels_like}°C, 湿度 ${data.humidity}%，风速 ${data.wind_speed}m/s` : `处于无外部数据注入的手动模拟宇宙区`
-
-  const prompt = `你是一个名为“深空边缘观测站”的高维监控系统，且对被观测者保持着绝对理性的守护。
-探测目标区域：首尔·永登浦。当前核心气象特征：【${stateName}】。${tempStr}
-
-请基于外面的真实天气情况，模仿我给出的【高级参考样例】的风格（一种将冰冷的天体物理隐喻，与极其具有实用价值的防晒/防雨/穿衣建议相融合的连续短文风格），完成预报。
-必须绝对严格按此 JSON 结构格式输出（不要任何附带字符或 markdown 代码块，直接返回大括号开始的 JSON）：
-{
-  "poem": "关于此天气的深度隐喻。必须包含“首尔”或“永登浦”字眼。须写成连贯的从容长句。（例如参考：首尔的天幕今日透明。光线未经任何衰减直达地面，这是一种极罕见的能量不耗散状态。）",
-  "travel": "出行与动线建议。极客语境下的实用出行指导，必须连贯写出。（例如参考：太阳辐射充足，所有室外动线均为优选。可以延长暴露在室外的时间。）",
-  "clothes": "穿衣与防御建议。非常明确直接的日常建议（如打伞、厚外套、防晒霜），用极客口吻说出。（例如参考：建议轻便透气的着装，紫外线处于较高量级，请部署必要的避光防晒措施。）"
+  // 根据主理人要求，天气悬浮 UI 已被隐藏，屏蔽对气象诗意预报的大模型请求以节省后台算力。
+  return
 }
-【极度重要】：
-1. 绝对不要写成干瘪断裂的词语堆砌（极度禁止类似“路径优选，雨棚优先”这种短促词组），必须是像参考样例那样有主谓宾的、优美连贯的句子。
-2. 保持字数的丰富度，每段话大概在20-50字，要在高维冰冷的外壳下，给足“出门到底带什么、穿什么”的切实生活叮嘱。`
 
-  try {
-    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}` 
-      },
-      body: JSON.stringify({
-        model: "Qwen/Qwen2.5-7B-Instruct",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.6,
-        max_tokens: 300
-      })
-    })
-
-    if (!response.ok) throw new Error('观测网阻断')
-    const resData = await response.json()
-    let content = resData.choices?.[0]?.message?.content || ''
-    
-    const startIdx = content.indexOf('{')
-    const endIdx = content.lastIndexOf('}')
-    if (startIdx !== -1 && endIdx !== -1) {
-      content = content.substring(startIdx, endIdx + 1)
-    }
-    // 修复大模型可能生成的非标准 JSON 语法（如尾部多余的逗号）
-    content = content.replace(/,\s*([}\]])/g, '$1')
-    const parsed = JSON.parse(content)
-    
-    currentWeatherTip.value = parsed.poem || fallbackTip
-    currentTravelTip.value = parsed.travel || fallbackTravel
-    currentClothingTip.value = parsed.clothes || fallbackClothes
-  } catch (err) {
-    console.warn("AI气象报告退回基础状态:", err)
-    currentWeatherTip.value = fallbackTip
-    currentTravelTip.value = fallbackTravel
-    currentClothingTip.value = fallbackClothes
-  }
-  isFetchingWeatherAdvice.value = false
-}
 
 const currentWeatherMeta = computed(() => {
   return weatherMeta[weatherState.value] || weatherMeta.unknown
@@ -1104,21 +1028,20 @@ async function triggerFoodRoulette() {
 </script>
 
 <template>
-  <!-- 主面板 -->
-  <div class="container" :class="[activeState.id, `weather-${weatherState}`]">
+  <!-- 主面板（恢复极简能量感背景） -->
+  <div class="container" :class="[activeState.id]">
 
-    <!-- ★ 粒子画布层（最底层，雨/雪/雾粒子都在这里） -->
-    <canvas ref="canvasRef" class="weather-canvas"></canvas>
+    <!-- ★ 粒子画布层 & 雷暴闪电（已根据要求禁用） -->
+    <canvas ref="canvasRef" class="weather-canvas" v-if="false"></canvas>
+    <div class="lightning-overlay" :class="{ active: showLightning }" v-if="false"></div>
 
-    <!-- ★ 雷暴闪电 overlay -->
-    <div class="lightning-overlay" :class="{ active: showLightning }"></div>
-
-    <!-- ★ 天气角标（左上角，常驻） -->
+    <!-- ★ 天气角标（左上角，常驻） -> 现已隐藏 -->
     <div
       class="weather-badge"
       :style="{ color: currentWeatherMeta.color }"
       @click="showWeatherPanel = !showWeatherPanel"
       title="首尔·永登浦  点击查看天气详情"
+      v-show="false"
     >
       <span class="weather-badge-icon">{{ currentWeatherMeta.icon }}</span>
       <div class="weather-badge-info">
@@ -1128,9 +1051,9 @@ async function triggerFoodRoulette() {
       </div>
     </div>
 
-    <!-- ★ 天气详情展开面板 -->
+    <!-- ★ 天气详情展开面板 -> 现已隐藏 -->
     <transition name="weather-panel-slide">
-      <div class="weather-panel" v-if="showWeatherPanel">
+      <div class="weather-panel" v-if="false">
         <div class="weather-panel-header">
           <span class="wp-title">首尔 · 永登浦  大气监测简报</span>
           <button class="wp-close" @click="showWeatherPanel = false">×</button>
@@ -1190,8 +1113,8 @@ async function triggerFoodRoulette() {
           </button>
         </div>
 
-        <!-- ★ 测试按钮组 -->
-        <div class="wp-test-section">
+        <!-- ★ 测试按钮组 (已隐藏：完成测试使命) -->
+        <div class="wp-test-section" v-show="false">
           <span class="wp-test-label" @click="showWeatherTestBtns = !showWeatherTestBtns">
             {{ showWeatherTestBtns ? '▾' : '▸' }} 天气效果预览
           </span>
