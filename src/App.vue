@@ -100,11 +100,127 @@ const weatherTips = {
   ]
 }
 
-const currentWeatherTip = computed(() => {
-  const state = weatherState.value
-  const tips = weatherTips[state] || weatherTips.unknown
-  return tips[Math.floor(Math.random() * tips.length)]
-})
+const weatherAdvice = {
+  clear: {
+    travel: '太阳辐射充足，所有室外动线均为优选。可以延长暴露在室外的时间。',
+    clothes: '建议轻便透气的着装，紫外线处于较高量级，请部署必要的避光防晒措施。'
+  },
+  clouds: {
+    travel: '大气漫射光线柔和。最适宜城市漫游与建筑间穿梭，避免了光照消耗。',
+    clothes: '气温受云体遮挡可能稍有下降，建议携带有厚度的薄外套以维持体表恒温。'
+  },
+  rain: {
+    travel: '非首要任务建议转入室内。外出时请尽量沿有顶棚的动线网络移动。',
+    clothes: '必须搭载防雨外骨骼（雨衣/防水涂层冲锋衣）及伞具，下肢注意防潮。'
+  },
+  drizzle: {
+    travel: '小幅度活动不受限。可前往半开放式的城市中转空间。',
+    clothes: '可选择易风干的抗水面料结构，搭配短柄折伞，警惕缓慢的热量散失。'
+  },
+  snow: {
+    travel: '可安排短距赏雪行动。降落地面的冰晶会改变摩擦系数，请降低移动速率。',
+    clothes: '启动高级保暖协议，配置羽绒层、防风隔离层，以及具备高抓地力的足层装备。'
+  },
+  thunderstorm: {
+    travel: '系统强制建议：绝对禁止空旷地带与高危区域的位移。请留守建筑掩体。',
+    clothes: '若紧急移动，严禁暴露并使用任何含金属引导件的防雨设备。保重安全。'
+  },
+  fog: {
+    travel: '能见度压缩至限制级。放弃私人高速驾驶，改用近场步行或地下轨道系统。',
+    clothes: '大气悬浮微粒附着度高，建议挂载过滤面罩（口罩），外层选择不易吸附水汽的面料。'
+  },
+  unknown: {
+    travel: '缺乏精确侦测参数。请基于自身肉眼观测进行风险评估和路径规划。',
+    clothes: '推荐多层嵌套式穿衣法（洋葱式结构），随时应对突发的非标气象。'
+  }
+}
+
+const currentWeatherTip = ref('观测节点初始寻址中...')
+const currentTravelTip = ref('标定安全出行阈值...')
+const currentClothingTip = ref('计算体表防护方程...')
+const isFetchingWeatherAdvice = ref(false)
+
+async function generateWeatherAdvice(stateId, data) {
+  const meta = weatherMeta[stateId] || weatherMeta.unknown
+  const fallbackTip = weatherTips[stateId] ? weatherTips[stateId][Math.floor(Math.random() * weatherTips[stateId].length)] : weatherTips.unknown[0]
+  const fallbackTravel = weatherAdvice[stateId] ? weatherAdvice[stateId].travel : weatherAdvice.unknown.travel
+  const fallbackClothes = weatherAdvice[stateId] ? weatherAdvice[stateId].clothes : weatherAdvice.unknown.clothes
+
+  const apiKey = import.meta.env.VITE_SILICONFLOW_API_KEY?.trim()
+  if (!apiKey || apiKey.includes('在这里填入')) {
+    currentWeatherTip.value = fallbackTip
+    currentTravelTip.value = fallbackTravel
+    currentClothingTip.value = fallbackClothes
+    return
+  }
+
+  if (stateId === 'loading') {
+    currentWeatherTip.value = '>>> 连接大型晶体管列阵中...'
+    return
+  }
+
+  isFetchingWeatherAdvice.value = true
+  
+  currentWeatherTip.value = '>>> 同步计算微距及宏观环境量子坍缩效应...'
+  currentTravelTip.value = '>>> 动态生成安全行进点阵图...'
+  currentClothingTip.value = '>>> 生物学防御掩体装配推演中...'
+
+  const stateName = meta.label
+  const tempStr = data ? `温度 ${data.temp}°C, 体感 ${data.feels_like}°C, 湿度 ${data.humidity}%，风速 ${data.wind_speed}m/s` : `处于无外部数据注入的手动模拟宇宙区`
+
+  const prompt = `你是一个名为“深空边缘观测站”的高维监控系统，且对被观测者保持着绝对理性的守护。
+探测目标区域：首尔·永登浦。当前核心气象特征：【${stateName}】。${tempStr}
+
+请基于外面的真实天气情况，模仿我给出的【高级参考样例】的风格（一种将冰冷的天体物理隐喻，与极其具有实用价值的防晒/防雨/穿衣建议相融合的连续短文风格），完成预报。
+必须绝对严格按此 JSON 结构格式输出（不要任何附带字符或 markdown 代码块，直接返回大括号开始的 JSON）：
+{
+  "poem": "关于此天气的深度隐喻。必须包含“首尔”或“永登浦”字眼。须写成连贯的从容长句。（例如参考：首尔的天幕今日透明。光线未经任何衰减直达地面，这是一种极罕见的能量不耗散状态。）",
+  "travel": "出行与动线建议。极客语境下的实用出行指导，必须连贯写出。（例如参考：太阳辐射充足，所有室外动线均为优选。可以延长暴露在室外的时间。）",
+  "clothes": "穿衣与防御建议。非常明确直接的日常建议（如打伞、厚外套、防晒霜），用极客口吻说出。（例如参考：建议轻便透气的着装，紫外线处于较高量级，请部署必要的避光防晒措施。）"
+}
+【极度重要】：
+1. 绝对不要写成干瘪断裂的词语堆砌（极度禁止类似“路径优选，雨棚优先”这种短促词组），必须是像参考样例那样有主谓宾的、优美连贯的句子。
+2. 保持字数的丰富度，每段话大概在20-50字，要在高维冰冷的外壳下，给足“出门到底带什么、穿什么”的切实生活叮嘱。`
+
+  try {
+    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}` 
+      },
+      body: JSON.stringify({
+        model: "Qwen/Qwen2.5-7B-Instruct",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.6,
+        max_tokens: 300
+      })
+    })
+
+    if (!response.ok) throw new Error('观测网阻断')
+    const resData = await response.json()
+    let content = resData.choices?.[0]?.message?.content || ''
+    
+    const startIdx = content.indexOf('{')
+    const endIdx = content.lastIndexOf('}')
+    if (startIdx !== -1 && endIdx !== -1) {
+      content = content.substring(startIdx, endIdx + 1)
+    }
+    // 修复大模型可能生成的非标准 JSON 语法（如尾部多余的逗号）
+    content = content.replace(/,\s*([}\]])/g, '$1')
+    const parsed = JSON.parse(content)
+    
+    currentWeatherTip.value = parsed.poem || fallbackTip
+    currentTravelTip.value = parsed.travel || fallbackTravel
+    currentClothingTip.value = parsed.clothes || fallbackClothes
+  } catch (err) {
+    console.warn("AI气象报告退回基础状态:", err)
+    currentWeatherTip.value = fallbackTip
+    currentTravelTip.value = fallbackTravel
+    currentClothingTip.value = fallbackClothes
+  }
+  isFetchingWeatherAdvice.value = false
+}
 
 const currentWeatherMeta = computed(() => {
   return weatherMeta[weatherState.value] || weatherMeta.unknown
@@ -269,10 +385,99 @@ function scheduleLightning() {
   }, delay)
 }
 
+function startClear() {
+  stopParticles()
+  resizeCanvas()
+  const canvas = canvasRef.value
+  const ctx = canvas.getContext('2d')
+
+  for (let i = 0; i < 40; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 45 + 15,
+      speed: Math.random() * 0.4 + 0.1,
+      opacity: Math.random() * 0.12 + 0.03,
+      drift: (Math.random() - 0.5) * 0.15,
+    })
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    particles.forEach(p => {
+      p.y -= p.speed
+      p.x += p.drift
+      
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r)
+      grad.addColorStop(0, `rgba(255, 230, 160, ${p.opacity})`)
+      grad.addColorStop(1, 'rgba(255, 230, 160, 0)')
+      
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+      ctx.fillStyle = grad
+      ctx.fill()
+      
+      if (p.y + p.r < 0) {
+        p.y = canvas.height + p.r
+        p.x = Math.random() * canvas.width
+      }
+    })
+    animFrameId = requestAnimationFrame(draw)
+  }
+  draw()
+}
+
+function startClouds() {
+  stopParticles()
+  resizeCanvas()
+  const canvas = canvasRef.value
+  const ctx = canvas.getContext('2d')
+
+  for (let i = 0; i < 20; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * (canvas.height * 0.5),
+      rx: Math.random() * 200 + 100,
+      ry: Math.random() * 70 + 30,
+      speed: Math.random() * 0.6 + 0.15,
+      opacity: Math.random() * 0.05 + 0.015,
+    })
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    particles.forEach(p => {
+      p.x += p.speed
+      
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, Math.max(p.rx, p.ry))
+      grad.addColorStop(0, `rgba(160, 175, 190, ${p.opacity})`)
+      grad.addColorStop(1, 'rgba(160, 175, 190, 0)')
+      
+      ctx.beginPath()
+      if (ctx.ellipse) {
+        ctx.ellipse(p.x, p.y, p.rx, p.ry, 0, 0, Math.PI * 2)
+      } else {
+        ctx.arc(p.x, p.y, p.ry, 0, Math.PI * 2) // fallback
+      }
+      ctx.fillStyle = grad
+      ctx.fill()
+      
+      if (p.x - p.rx > canvas.width) {
+        p.x = -p.rx
+        p.y = Math.random() * (canvas.height * 0.5)
+      }
+    })
+    animFrameId = requestAnimationFrame(draw)
+  }
+  draw()
+}
+
 function applyWeatherParticles(state) {
   clearTimeout(lightningTimer)
   showLightning.value = false
   switch (state) {
+    case 'clear':        startClear();     break
+    case 'clouds':       startClouds();    break
     case 'rain':         startRain(true);  break
     case 'drizzle':      startRain(false); break
     case 'snow':         startSnow();      break
@@ -339,9 +544,10 @@ function setWeatherManual(key) {
   weatherData.value = null  // 清空真实数据，表示手动模式
 }
 
-// 监听天气状态变化，同步更新粒子动画
-watch(weatherState, (newState) => {
+// 监听天气状态变化，同步更新粒子动画并触发AI生成
+watch(weatherState, async (newState) => {
   applyWeatherParticles(newState)
+  generateWeatherAdvice(newState, weatherData.value)
 })
 
 onMounted(() => {
@@ -846,10 +1052,18 @@ async function handleSubmitMessage() {
             </div>
           </div>
 
-          <!-- 诗意提示语 -->
-          <div class="wp-tip" :style="{ borderColor: currentWeatherMeta.color + '40' }">
-            <span class="wp-tip-label">// GEO·SIGNAL</span>
-            <p class="wp-tip-text">{{ currentWeatherTip }}</p>
+          <!-- 诗意提示语 & 出行穿衣建议 -->
+          <div class="wp-advice-container">
+            <div class="wp-tip" :style="{ borderColor: currentWeatherMeta.color + '40' }">
+              <span class="wp-tip-label">// GEO·SIGNAL (深度气象)</span>
+              <p class="wp-tip-text" :class="{ 'blinking-cursor': isFetchingWeatherAdvice }">{{ currentWeatherTip }}</p>
+            </div>
+            
+            <div class="wp-tip wp-advice" :style="{ borderColor: currentWeatherMeta.color + '80' }">
+              <span class="wp-tip-label">// TACTICS (生存与出行对策)</span>
+              <p class="wp-tip-text" :class="{ 'blinking-cursor': isFetchingWeatherAdvice }"><strong style="color: rgba(255,255,255,0.7)">[ 行路 ]</strong> {{ currentTravelTip }}</p>
+              <p class="wp-tip-text" :class="{ 'blinking-cursor': isFetchingWeatherAdvice }" style="margin-top: 6px;"><strong style="color: rgba(255,255,255,0.7)">[ 庇体 ]</strong> {{ currentClothingTip }}</p>
+            </div>
           </div>
 
           <!-- 刷新按钮 -->
@@ -1583,6 +1797,15 @@ async function handleSubmitMessage() {
 .container.weather-clear   { background: radial-gradient(circle at 50% 30%, rgba(40, 28, 5, 0.6) 0%, #080600 80%) !important; }
 .container.weather-clouds  { background: radial-gradient(circle at 50% 30%, rgba(20, 22, 30, 0.85) 0%, #060608 80%) !important; }
 
+/* 晴天放大光晕，色调偏暖 */
+.container.weather-clear .orb-core {
+  box-shadow: 0 0 30px rgba(255, 220, 100, 0.9), 0 0 90px rgba(255, 180, 50, 0.6) !important;
+}
+/* 阴天光晕朦胧，偏灰冷 */
+.container.weather-clouds .orb-core {
+  box-shadow: 0 0 20px rgba(180, 190, 210, 0.7), 0 0 60px rgba(130, 140, 160, 0.3) !important;
+  filter: blur(2px);
+}
 /* 雪天让orb带蓝白光 */
 .container.weather-snow .orb-core {
   box-shadow: 0 0 25px rgba(180, 220, 255, 0.9), 0 0 70px rgba(150, 200, 255, 0.5) !important;
@@ -1718,12 +1941,20 @@ async function handleSubmitMessage() {
 .wp-stat-key { font-size: 0.6rem; color: rgba(255,255,255,0.3); letter-spacing: 0.1em; }
 .wp-stat-val { font-size: 0.9rem; font-family: monospace; color: rgba(255,255,255,0.85); }
 
-/* 诗意提示语 */
+/* 诗意提示语 & 建议 */
+.wp-advice-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .wp-tip {
   border-left: 2px solid rgba(255,255,255,0.2);
   padding: 10px 14px;
   background: rgba(255, 255, 255, 0.02);
   border-radius: 0 8px 8px 0;
+}
+.wp-advice {
+  background: rgba(255, 255, 255, 0.04);
 }
 .wp-tip-label {
   font-family: monospace;
