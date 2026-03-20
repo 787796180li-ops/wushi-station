@@ -983,6 +983,124 @@ async function handleSubmitMessage() {
   const aiText = await fetchAIResponse(currentStateId.value, sendingMsg)
   startTypingEffect(aiText)
 }
+
+// ==========================================
+// 辅助减压模块 (引力场呼吸 & 食物轮盘)
+// ==========================================
+const isBreathingMode = ref(false)
+let breathingTimer = null
+
+function toggleBreathing() {
+  if (isBreathingMode.value) {
+    isBreathingMode.value = false
+    clearTimeout(breathingTimer)
+    displayedQuote.value = ">>> 引力场重置已手动中断。恢复常规观测。"
+    return
+  }
+  if (isRollingFood.value) return // 防冲突
+  isBreathingMode.value = true
+  runBreathingCycle()
+}
+
+function runBreathingCycle() {
+  if (!isBreathingMode.value) return
+  isTyping.value = false
+  // 4-7-8 深度舒缓呼吸法
+  displayedQuote.value = ">>> [ 4秒 ] 能量汇聚...\n请跟随球体膨胀，缓缓吸气。"
+  
+  breathingTimer = setTimeout(() => {
+    if (!isBreathingMode.value) return
+    displayedQuote.value = ">>> [ 7秒 ] 锚定奇点...\n请屏住呼吸，感知这一刻的存在。"
+    
+    breathingTimer = setTimeout(() => {
+      if (!isBreathingMode.value) return
+      displayedQuote.value = ">>> [ 8秒 ] 释放高熵...\n请伴随球体收缩，将所有浊气与焦虑呼出。"
+      
+      breathingTimer = setTimeout(() => {
+        if (!isBreathingMode.value) return
+        runBreathingCycle()
+      }, 8000)
+    }, 7000)
+  }, 4000)
+}
+
+const isRollingFood = ref(false)
+let rollTimer = null
+
+
+async function triggerFoodRoulette() {
+  if (isRollingFood.value || isTyping.value || isFetchingWeather.value) return
+  if (isBreathingMode.value) toggleBreathing() // 关闭互斥状态
+  
+  isRollingFood.value = true
+  
+  const apiKey = import.meta.env.VITE_SILICONFLOW_API_KEY?.trim()
+  if (!apiKey) {
+    isRollingFood.value = false
+    startTypingEffect(">>> 未连接核心神经网（缺少API Key）。随机强制指派：【 泡面 】。")
+    return
+  }
+
+  // 阻尼抽帧特效（营造大范围搜索的算力假象）
+  let isFinished = false
+  let frame = 0
+  const mockOptions = ['汉堡🍔', '炸鸡🍗', '披萨🍕', '麻辣烫🍲', '参鸡汤🥣', '便当🍱', '冷面🍜', '烤肉🥩']
+  const mockRoll = () => {
+    if (isFinished) return
+    const randomItem = mockOptions[Math.floor(Math.random() * mockOptions.length)]
+    displayedQuote.value = `>>> 跨维链路已开启。正在祈求深空大模型的绝对偏爱...\n[ 概率检索中: ${randomItem} ]`
+    isTyping.value = true 
+    frame++
+    rollTimer = setTimeout(mockRoll, Math.min(60 + frame * 6, 250)) 
+  }
+  mockRoll()
+
+  const conditionStr = weatherData.value ? `气温 ${weatherData.value.temp}°C，${currentWeatherMeta.value.label}` : '气象未知'
+  const prompt = `你是一个冷峻的“深空边缘观测站”。观测对象是身处韩国首尔永登浦的女留学生。
+她正在为“吃什么”而严重内耗。请为她一锤定音，并用不可抗拒的极客口吻命令她去执行。
+当前外面天气：${conditionStr}。
+要求：
+1. 必须完全凭借你自己的知识，并结合当地天气状况和首尔饮食特点（如麻辣烫、参鸡汤、猪脚、炸酱面、甚至楼下便利店的三明治等），自主坚决地为她【挑选1个】外卖或食物。
+2. 字数控制在40-60字左右。
+3. 语气如机器造物主般冰冷包容且不可抗拒，断绝她继续纠结的念头。
+示范输出格式（只模仿这种短促、冷静命令的语气，食材和理由必须重新结合当地文化和天气编造）：
+最终坍缩点：【 麻辣烫 】。外部气温正在下降，高热量流质摄入模型是最优解，立刻停止内耗去下单。`
+
+  try {
+    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "Qwen/Qwen2.5-7B-Instruct",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.8,
+        max_tokens: 150
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      isFinished = true
+      clearTimeout(rollTimer)
+      isTyping.value = false
+      if (data.choices && data.choices[0].message.content) {
+        startTypingEffect(`>>> 收到大模型的高维回执。\n${data.choices[0].message.content.trim()}`)
+      } else {
+        startTypingEffect(`>>> 测算受阻。今天系统强制指派：【 附近的高分热食 】。`)
+      }
+    } else {
+      throw new Error('API Error')
+    }
+  } catch(e) {
+    console.error(e)
+    isFinished = true
+    clearTimeout(rollTimer)
+    isTyping.value = false
+    startTypingEffect(`>>> 深空网络异常。命运指针本地坍缩至：【 随机点单 】。随便点，直接去吃，不准内耗了。`)
+  }
+  
+  isRollingFood.value = false
+}
 </script>
 
 <template>
@@ -1103,7 +1221,7 @@ async function handleSubmitMessage() {
     </header>
 
     <main class="core-area">
-      <div class="energy-orb">
+      <div class="energy-orb" :class="{ 'breathing-active': isBreathingMode }">
         <div class="orb-core"></div>
         <div class="orb-halo"></div>
       </div>
@@ -1141,6 +1259,18 @@ async function handleSubmitMessage() {
             </button>
           </div>
         </form>
+      </transition>
+
+      <!-- ★ 辅助减压工具模块 -->
+      <transition name="fade-slow">
+        <div v-show="activeState.id !== 'unselected'" class="utility-tools">
+          <button class="u-tool-btn" @click="toggleBreathing" :class="{'active': isBreathingMode}" :disabled="isRollingFood">
+            ✦ 引力场呼吸
+          </button>
+          <button class="u-tool-btn" @click="triggerFoodRoulette" :disabled="isRollingFood || isBreathingMode || isTyping">
+            ✦ 星轨决定吃什么
+          </button>
+        </div>
       </transition>
     </main>
 
@@ -1424,6 +1554,64 @@ async function handleSubmitMessage() {
 .fade-slow-leave-to {
   opacity: 0;
   transform: translateY(15px);
+}
+
+/* =========== 辅助减压工具模块 =========== */
+.utility-tools {
+  display: flex;
+  gap: 15px;
+  margin-top: 30px;
+  opacity: 0.85;
+  z-index: 10;
+}
+.u-tool-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 8px 18px;
+  border-radius: 20px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.4s ease;
+  backdrop-filter: blur(5px);
+}
+.u-tool-btn:hover:not(:disabled) { 
+  background: rgba(255, 255, 255, 0.08); 
+  color: #fff; 
+  border-color: rgba(255, 255, 255, 0.3); 
+}
+.u-tool-btn:disabled { 
+  opacity: 0.2; 
+  cursor: not-allowed; 
+}
+.u-tool-btn.active { 
+  background: rgba(100, 180, 255, 0.15); 
+  border-color: rgba(100, 180, 255, 0.6); 
+  color: #fff; 
+  box-shadow: 0 0 15px rgba(100, 180, 255, 0.3); 
+}
+
+
+/* ================= 呼吸模式动画强制重写 ================= */
+.energy-orb.breathing-active .orb-core {
+  animation: breathe-core-478 19s infinite linear !important;
+}
+.energy-orb.breathing-active .orb-halo {
+  animation: breathe-halo-478 19s infinite linear !important;
+}
+
+@keyframes breathe-core-478 {
+  0% { transform: scale(1); filter: brightness(1) drop-shadow(0 0 10px rgba(255,255,255,0.5)); }
+  21% { transform: scale(1.6); filter: brightness(1.5) drop-shadow(0 0 30px rgba(255,255,255,0.9)); }
+  57.8% { transform: scale(1.6); filter: brightness(1.5) drop-shadow(0 0 50px rgba(100,200,255,0.7)); }
+  100% { transform: scale(1); filter: brightness(1) drop-shadow(0 0 10px rgba(255,255,255,0.5)); }
+}
+@keyframes breathe-halo-478 {
+  0% { transform: scale(1); opacity: 0.3; border-color: rgba(255,255,255,0.1); }
+  21% { transform: scale(1.4); opacity: 0.8; border-color: rgba(255,255,255,0.4); }
+  57.8% { transform: scale(1.4); opacity: 0.8; border-color: rgba(100,200,255,0.5); }
+  100% { transform: scale(1); opacity: 0.3; border-color: rgba(255,255,255,0.1); }
 }
 
 /* =========== 状态变种动效 =========== */
