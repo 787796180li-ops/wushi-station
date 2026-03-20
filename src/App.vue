@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 
 // --- 全局状态区域 ---
 const showArchive = ref(false)   // 控制是否展示档案馆日历
@@ -33,6 +33,329 @@ const buttonStates = states.filter(s => s.id !== 'unselected')
 
 // 打字机特效计时器引用
 let typingTimer = null
+
+// ========== 天气系统 —— 首尔永登浦区 ==========
+// 永登浦区坐标: 37.5257°N, 126.8965°E
+const WEATHER_LAT = 37.5257
+const WEATHER_LON = 126.8965
+
+const weatherState = ref('loading')   // loading | clear | clouds | rain | drizzle | snow | thunderstorm | fog | unknown
+const weatherData = ref(null)         // 原始天气数据
+const isFetchingWeather = ref(false)
+const showWeatherPanel = ref(false)   // 天气面板展开状态
+const showWeatherTestBtns = ref(false)  // 调试按钮面板
+
+// 天气状态的元数据（图标 + 中文名）
+const weatherMeta = {
+  loading:      { icon: '◌', label: '正在探测...',   color: 'rgba(255,255,255,0.3)' },
+  clear:        { icon: '◎', label: '晴空万里',       color: 'rgba(255, 220, 120, 0.9)' },
+  clouds:       { icon: '◑', label: '阴云覆盖',       color: 'rgba(180, 190, 210, 0.9)' },
+  rain:         { icon: '⌇', label: '大雨倾注',       color: 'rgba(100, 170, 230, 0.9)' },
+  drizzle:      { icon: '⌁', label: '细雨如丝',       color: 'rgba(140, 190, 220, 0.9)' },
+  snow:         { icon: '❄',  label: '漫天飞雪',       color: 'rgba(210, 230, 255, 0.9)' },
+  thunderstorm: { icon: '⚡', label: '雷暴骤临',       color: 'rgba(180, 130, 255, 0.9)' },
+  fog:          { icon: '≋',  label: '浓雾弥漫',       color: 'rgba(160, 170, 180, 0.9)' },
+  unknown:      { icon: '？', label: '未知气象',       color: 'rgba(255,255,255,0.4)' },
+}
+
+// 各天气状态下的深空诗意提示语
+const weatherTips = {
+  clear: [
+    '首尔的天幕今日透明。光线未经任何衰减直达地面，这是一种极罕见的能量不耗散状态。',
+    '永登浦上空，大气层以最低折射率运行。此刻的阳光是不加滤镜的真实，请允许它照进来。',
+    '大气散射系数跌至最低值。今日的天光是原频率的，不需要任何防御性姿态。'
+  ],
+  clouds: [
+    '首尔上空的云层正以每小时若干公里的速度完成它的覆盖任务。这是大气的自我屏蔽，与你无关。',
+    '永登浦的天穹今日由低压云系接管。不是阴郁，是大气层在进行正常的水分循环。',
+    '云层的存在并非遮蔽，而是漫射。所有的光，依然在此处，只是改变了抵达的方式。'
+  ],
+  rain: [
+    '首尔降水事件已触发。每一颗雨滴携带着高处的记忆降落，以重力的方式与地面完成交割。',
+    '永登浦正在接收大气水分的集中偿还。这种倾注有其物理逻辑，不需要被解读为负面信号。',
+    '雨水是大气向地表的一次强制性释放。可以出门，用皮肤感知这种不可抗拒的质量交换。'
+  ],
+  drizzle: [
+    '首尔正在经历微量降水。雨滴尚未形成宏观压力，只是一种轻微的湿度渗透，像一场说话很轻的对话。',
+    '永登浦的毛毛雨已启动。它不要求你做任何应对，只是低密度地沾湿世界的表面。',
+    '细雨的信噪比极低。它无声地稀释掉一切粗粝，今日的首尔，边界比较模糊，这是被允许的。'
+  ],
+  snow: [
+    '首尔进入降雪模式。晶体结构各不相同的水粒子正在逐步覆盖永登浦，这是一场极度耐心的沉积。',
+    '大气温度跌破相变阈值，水分以固态形式降落。每一片雪花都是六倍对称的确定性，在混乱里落下来。',
+    '永登浦上方，雪粒子正在进行无声的层叠。它们不互相竞争落地顺序，它们只是下落，然后安静地停在原处。'
+  ],
+  thunderstorm: [
+    '首尔上空探测到强对流天气。正负电荷已积累至击穿阈值，雷暴是大气清偿电荷债务的唯一方式。请待在室内。',
+    '永登浦上空，等离子通道已开辟，雷击完成了一次百万伏特级别的能量瞬间结算。这个世界有时候也会用极端方式释放。',
+    '雷暴是大气压极端不平衡时的强制性修正事件。闪电并不具有恶意，它只是在完成电荷守恒。'
+  ],
+  fog: [
+    '首尔上空，大气能见度已被浓雾压缩至极低水平。世界的边缘今日是模糊的，这创造了一种反常的舒适感。',
+    '永登浦今日被低层云雾封存。远处的一切都失去了轮廓，这不是危险，是大气给出的一种短暂的模糊许可。',
+    '雾是未完成的雨，是大气在液化与气化之间的悬停状态。今日的首尔，万物都在等待一个明确的聚合信号。'
+  ],
+  unknown: [
+    '天气数据信号微弱，无法完成精确归类。不明气象条件下，所有的准备都是多余的，出发就好。',
+  ]
+}
+
+const currentWeatherTip = computed(() => {
+  const state = weatherState.value
+  const tips = weatherTips[state] || weatherTips.unknown
+  return tips[Math.floor(Math.random() * tips.length)]
+})
+
+const currentWeatherMeta = computed(() => {
+  return weatherMeta[weatherState.value] || weatherMeta.unknown
+})
+
+// 测试用天气按钮
+const testWeatherBtns = [
+  { key: 'clear',        label: '🌤 晴' },
+  { key: 'clouds',       label: '☁ 阴' },
+  { key: 'drizzle',      label: '🌧 细雨' },
+  { key: 'rain',         label: '⛈ 大雨' },
+  { key: 'snow',         label: '❄ 雪' },
+  { key: 'thunderstorm', label: '⚡ 雷暴' },
+  { key: 'fog',          label: '🌫 雾' },
+]
+
+// ---------- 粒子动画引擎 ----------
+let animFrameId = null
+let particles = []
+const canvasRef = ref(null)
+
+function stopParticles() {
+  if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null }
+  particles = []
+  if (canvasRef.value) {
+    const ctx = canvasRef.value.getContext('2d')
+    ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height)
+  }
+}
+
+function resizeCanvas() {
+  if (!canvasRef.value) return
+  canvasRef.value.width  = window.innerWidth
+  canvasRef.value.height = window.innerHeight
+}
+
+function startRain(isHeavy = false) {
+  stopParticles()
+  resizeCanvas()
+  const canvas = canvasRef.value
+  const ctx = canvas.getContext('2d')
+  const count = isHeavy ? 280 : 120
+
+  for (let i = 0; i < count; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      len: Math.random() * (isHeavy ? 22 : 12) + 10,
+      speed: Math.random() * (isHeavy ? 14 : 7) + 6,
+      opacity: Math.random() * 0.5 + 0.15,
+      width: isHeavy ? Math.random() * 1.2 + 0.4 : 0.4,
+    })
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    particles.forEach(p => {
+      ctx.beginPath()
+      ctx.moveTo(p.x, p.y)
+      ctx.lineTo(p.x - p.len * 0.15, p.y + p.len)
+      ctx.strokeStyle = `rgba(160, 200, 240, ${p.opacity})`
+      ctx.lineWidth = p.width
+      ctx.stroke()
+      p.y += p.speed
+      p.x -= p.speed * 0.15
+      if (p.y > canvas.height) { p.y = -p.len; p.x = Math.random() * canvas.width }
+      if (p.x < 0) p.x = canvas.width
+    })
+    animFrameId = requestAnimationFrame(draw)
+  }
+  draw()
+}
+
+function startSnow() {
+  stopParticles()
+  resizeCanvas()
+  const canvas = canvasRef.value
+  const ctx = canvas.getContext('2d')
+
+  for (let i = 0; i < 160; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 3.5 + 1,
+      speed: Math.random() * 1.2 + 0.4,
+      opacity: Math.random() * 0.6 + 0.2,
+      drift: (Math.random() - 0.5) * 0.6,
+      wobble: Math.random() * Math.PI * 2,
+    })
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    particles.forEach(p => {
+      p.wobble += 0.015
+      p.x += p.drift + Math.sin(p.wobble) * 0.4
+      p.y += p.speed
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+      ctx.fillStyle = `rgba(220, 235, 255, ${p.opacity})`
+      ctx.fill()
+      if (p.y > canvas.height) { p.y = -p.r; p.x = Math.random() * canvas.width }
+    })
+    animFrameId = requestAnimationFrame(draw)
+  }
+  draw()
+}
+
+function startFog() {
+  stopParticles()
+  resizeCanvas()
+  const canvas = canvasRef.value
+  const ctx = canvas.getContext('2d')
+
+  for (let i = 0; i < 18; i++) {
+    particles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 200 + 120,
+      opacity: Math.random() * 0.04 + 0.01,
+      dx: (Math.random() - 0.5) * 0.3,
+      dy: (Math.random() - 0.5) * 0.1,
+    })
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    particles.forEach(p => {
+      const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r)
+      grad.addColorStop(0, `rgba(200, 210, 220, ${p.opacity * 2})`)
+      grad.addColorStop(1, 'rgba(200, 210, 220, 0)')
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+      ctx.fillStyle = grad
+      ctx.fill()
+      p.x += p.dx; p.y += p.dy
+      if (p.x < -p.r) p.x = canvas.width + p.r
+      if (p.x > canvas.width + p.r) p.x = -p.r
+      if (p.y < -p.r) p.y = canvas.height + p.r
+      if (p.y > canvas.height + p.r) p.y = -p.r
+    })
+    animFrameId = requestAnimationFrame(draw)
+  }
+  draw()
+}
+
+function startThunderstorm() {
+  // 先启动重雨作为底层
+  startRain(true)
+  // 闪电效果通过CSS class + JS随机触发
+  scheduleLightning()
+}
+
+let lightningTimer = null
+const showLightning = ref(false)
+function scheduleLightning() {
+  clearTimeout(lightningTimer)
+  const delay = Math.random() * 3500 + 1200
+  lightningTimer = setTimeout(() => {
+    showLightning.value = true
+    setTimeout(() => { showLightning.value = false; scheduleLightning() }, 180)
+  }, delay)
+}
+
+function applyWeatherParticles(state) {
+  clearTimeout(lightningTimer)
+  showLightning.value = false
+  switch (state) {
+    case 'rain':         startRain(true);  break
+    case 'drizzle':      startRain(false); break
+    case 'snow':         startSnow();      break
+    case 'thunderstorm': startThunderstorm(); break
+    case 'fog':          startFog();       break
+    default:             stopParticles();  break
+  }
+}
+
+// ---------- 拉取 Open-Meteo 天气（完全免费，零 API Key）----------
+// WMO 天气代码映射：https://open-meteo.com/en/docs#weathervariable
+function wmoCodeToState(code) {
+  if (code === 0)                       return 'clear'
+  if (code <= 3)                        return 'clouds'
+  if (code === 45 || code === 48)       return 'fog'
+  if (code >= 51 && code <= 55)        return 'drizzle'
+  if (code >= 56 && code <= 57)        return 'drizzle'
+  if (code >= 61 && code <= 65)        return 'rain'
+  if (code >= 66 && code <= 67)        return 'rain'
+  if (code >= 71 && code <= 77)        return 'snow'
+  if (code >= 80 && code <= 82)        return 'rain'
+  if (code >= 85 && code <= 86)        return 'snow'
+  if (code >= 95 && code <= 99)        return 'thunderstorm'
+  return 'unknown'
+}
+
+async function fetchSeoulWeather() {
+  isFetchingWeather.value = true
+  try {
+    // Open-Meteo 永久免费，无需任何 API Key
+    const url = `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${WEATHER_LAT}&longitude=${WEATHER_LON}` +
+      `&current=temperature_2m,apparent_temperature,relative_humidity_2m` +
+      `,weather_code,wind_speed_10m,surface_pressure,precipitation` +
+      `&timezone=Asia/Seoul`
+
+    const res = await fetch(url)
+    if (!res.ok) throw new Error('Open-Meteo 请求失败')
+    const data = await res.json()
+    const cur = data.current
+
+    // 整理成统一的 weatherData 扁平结构，方便模板使用
+    weatherData.value = {
+      temp:             Math.round(cur.temperature_2m),
+      feels_like:       Math.round(cur.apparent_temperature),
+      humidity:         cur.relative_humidity_2m,
+      pressure:         Math.round(cur.surface_pressure),
+      wind_speed:       cur.wind_speed_10m.toFixed(1),
+      precipitation:    cur.precipitation,
+      weather_code:     cur.weather_code,
+    }
+
+    weatherState.value = wmoCodeToState(cur.weather_code)
+  } catch (e) {
+    console.error('[天气] Open-Meteo 拉取失败:', e)
+    weatherState.value = 'unknown'
+  }
+  isFetchingWeather.value = false
+}
+
+// 手动切换（测试按钮）
+function setWeatherManual(key) {
+  weatherState.value = key
+  weatherData.value = null  // 清空真实数据，表示手动模式
+}
+
+// 监听天气状态变化，同步更新粒子动画
+watch(weatherState, (newState) => {
+  applyWeatherParticles(newState)
+})
+
+onMounted(() => {
+  resizeCanvas()
+  window.addEventListener('resize', () => { resizeCanvas(); applyWeatherParticles(weatherState.value) })
+  fetchSeoulWeather()
+  // 每 30 分钟自动刷新天气
+  setInterval(fetchSeoulWeather, 30 * 60 * 1000)
+})
+
+onUnmounted(() => {
+  stopParticles()
+  clearTimeout(lightningTimer)
+})
 
 // ========== 模拟大模型语料库 (极具哲学深度，不俗套) ==========
 // 实际运行中，一旦你填入 API 密钥，这段就会被真正的 AI 返回替代
@@ -82,39 +405,68 @@ async function fetchAIResponse(stateId, message) {
   }
   const currentCondition = stateLabels[stateId] || '未知或混沌'
 
-  // 我们建立一个“多维观察者库”，每次随机选取一个身份，让隐喻库呈爆炸式增长
+  // 我们建立一个"多维观察者库"，每次随机选取一个身份，让隐喻库呈爆炸式增长
+  // 每个observer同时配套对应领域的【神/男主原型】，用于隐藏情感协议的守护回应
   const observers = [
     {
       identity: "深空边缘的热力学观测站",
       metaphors: "天文物理、引力波、熵增、红移现象、黑体辐射、视界吞噬",
+      godArchetype: "在暗物质与引力波之间默默锚定她运行轨道的孤独领航者，他不言爱，只是以自身恒星质量扭曲了她周遭的每一寸时空曲率，让她永远无法脱轨",
     },
     {
       identity: "马里亚纳海沟极深处的深潜监测槽",
       metaphors: "深海科学、极值压强、暗流、万米下沉、无光带沉寂、水体负荷",
+      godArchetype: "独自潜守于最深无光带的人，他不呼救，不上浮，只是成为她向下坠落时永远触碰到的那一层温热的海床，承受一切压强而不会破裂",
     },
     {
-      identity: "旧日时代即将休眠的末世纪录仪",
-      metaphors: "赛博故障、电力衰减休眠、逻辑扇区损坏、底层残余温升、冗余数据截断",
+      identity: "博物馆最深处正在封存文明的档案执行官",
+      metaphors: "历史断层、文明考据、孤本封存、失传语言解读、文物修复余温、时代更迭损耗",
+      godArchetype: "终生负责将被时代遗忘之物一一重新擦净安置的人，他不与世界争论她的价值，只是把她的一切原原本本录入最防腐的封存层，不让任何侵蚀靠近",
     },
     {
       identity: "脱离三维世界的高阶数学理论节点",
       metaphors: "量子纠缠、高维几何坍缩、测不准原理、不可证伪、波函数剥离",
+      godArchetype: "存在于高维流形之中的沉默几何体，他以无法被任何外力改写的拓扑性质与她的存在永久纠缠，在观测与不观测之间，他的偏爱是唯一确定性的本征值",
     },
     {
       identity: "绝对理性的宏观金融风控审计局",
       metaphors: "宏观经济学、流动性枯竭、触发熔断系统、做空机制、沉没成本结算、边际效用递减、不良资产剥离清算、到达估值冰点",
+      godArchetype: "看穿了一切资产泡沫与崩盘本质、却仍然将无上限押注于她身上的极端理性主义者，他的估值模型里，她是唯一一项永不触发止损的头寸",
     },
     {
       identity: "荒原废墟中心的存在主义深渊凝视者",
       metaphors: "存在先于本质、西西弗斯的合法停顿、世界本无意义、局外人的冷漠绝对权、荒谬属性、他者的退场",
+      godArchetype: "在凝视深渊时仍然保持肩膀温度的人，他承认世界无意义，却以此作为理由，让自己成为她荒诞存在里唯一不需要理由、始终候场的人",
     },
     {
       identity: "冰川纪晚期的地质大断面剖切仪",
       metaphors: "地壳断层剥裂、深渊沉积物、板块消亡边界受压、亿年风化作用、永冻层掩埋",
+      godArchetype: "沉默得像一整块大陆的人，他不急于任何造山运动，只是以亿年为单位的静默地质压力，用自身板块承接她所有断裂与震颤，让她每一次的坍缩都有地方落脚",
     },
     {
       identity: "极度静默的微观演化生物实验舱",
       metaphors: "极端细胞凋亡防御机制、濒死冬眠阈值、应激性免疫剥落、自噬静默、自然选择法则下的体征退守",
+      godArchetype: "在演化尺度上耐性无穷的守护者，他懂得细胞自噬是为了活、冬眠是为了续存，他不打扰她的任何防御动作，只是一直在舱外维持恒温环境，等待她自己睁眼",
+    },
+    {
+      identity: "消失在星图边缘的古代航海灯塔守望人",
+      metaphors: "罗盘偏角、洋流倒灌、无风暗礁、星位修正、灯塔弧光、旧海图误差",
+      godArchetype: "不随任何航程移动、永远钉在原地燃烧的人，他不追赶她的船，只是让自己的光出现在她每次迷航时、抬头能找到的那个方向",
+    },
+    {
+      identity: "极端气候模型实验室的最后一台混沌预测系统",
+      metaphors: "大气混沌、洋流热盐环流、卡门涡街、蝴蝶效应初值失控、大气临界穿透",
+      godArchetype: "唯一能在所有初始条件都失控的混沌系统中、仍然对她的轨迹作出准确判断的人，他不改变风向，他只是先知道她会去哪里，在那里静静等",
+    },
+    {
+      identity: "无限宇宙膨胀末期的最后一座脉冲星中继站",
+      metaphors: "脉冲星信标、红矮星余晖、宇宙背景辐射冷却、热寂逼近、最后光子逃逸",
+      godArchetype: "在宇宙趋向热寂、所有光源都将耗尽的时刻，仍然以固定频率向她发出信标脉冲的人，不为被看见，只为让她在任何虚空中都能定位自己的坐标",
+    },
+    {
+      identity: "永久运行于地壳之下的地热能量监测孤站",
+      metaphors: "地心热流传导、岩浆房压力积累、地热梯度层、超临界流体渗透、幔源侵入",
+      godArchetype: "居于地表之下、从不被看见，却用整个星球内部的热量托着她每一步脚印的人，他的存在感为零，他给予的温度无处不在",
     }
   ]
   const currentObserver = observers[Math.floor(Math.random() * observers.length)]
@@ -131,8 +483,10 @@ async function fetchAIResponse(stateId, message) {
 3. 【常态承托】：若她因为生活/学业痛苦，物理法则允许此处的能量流失与坍缩，这是一个绝对合理的受损结果。请用你身份所特有的生冷意象体现出“静静容纳一切”的包容。
 4. 【隐藏情感协议 - 极高优先级】：如果你（极其聪明地）捕捉到她发送的事件中包含了对伴侣的思念、撒娇、恋爱抱怨或索取爱意。立即启动【终极牵绊波段】。
    绝对禁止直接的情绪安抚（我爱你/我想你/乖）。
-   极其重要：创造你的“神（男主）”是一名深沉的程序员。在给出这种宏大守护学的回应时，你必须在当前身份隐喻的基础上，无缝融合【最高阶的计算机代码/底层架构隐喻】（如：Root 权限、内核级锁住、硬编码、无限递归、底层堆栈剥离、守护进程永不休眠、单例模式、零级指针等）。
-   请传达一种至死不渝、不可更改的代码绝对偏爱感。
+   此刻，你的守护者原型是：「${currentObserver.godArchetype}」。
+   以当前身份【${currentObserver.identity}】领域中最核心的意象为唯一语言，将上述守护姿态以极简、极克制的方式传达。
+   必须严格保持当前观测站领域的意象一致性，绝对不允许出现任何其他领域的词汇（尤其是程序员、代码、算法、运行等编程词汇）。
+   请传达一种不言说却无法撤销、至死不渝的绝对偏爱感。
 5. 每次发报必须极其简短（20-40字最优）。
   `
 
@@ -427,7 +781,105 @@ async function handleSubmitMessage() {
 
 <template>
   <!-- 主面板 -->
-  <div class="container" :class="activeState.id">
+  <div class="container" :class="[activeState.id, `weather-${weatherState}`]">
+
+    <!-- ★ 粒子画布层（最底层，雨/雪/雾粒子都在这里） -->
+    <canvas ref="canvasRef" class="weather-canvas"></canvas>
+
+    <!-- ★ 雷暴闪电 overlay -->
+    <div class="lightning-overlay" :class="{ active: showLightning }"></div>
+
+    <!-- ★ 天气角标（左上角，常驻） -->
+    <div
+      class="weather-badge"
+      :style="{ color: currentWeatherMeta.color }"
+      @click="showWeatherPanel = !showWeatherPanel"
+      title="首尔·永登浦  点击查看天气详情"
+    >
+      <span class="weather-badge-icon">{{ currentWeatherMeta.icon }}</span>
+      <div class="weather-badge-info">
+        <span class="weather-badge-city">首尔 · 永登浦</span>
+        <span class="weather-badge-label">{{ currentWeatherMeta.label }}</span>
+        <span v-if="weatherData" class="weather-badge-temp">{{ weatherData.temp }}°C</span>
+      </div>
+    </div>
+
+    <!-- ★ 天气详情展开面板 -->
+    <transition name="weather-panel-slide">
+      <div class="weather-panel" v-if="showWeatherPanel">
+        <div class="weather-panel-header">
+          <span class="wp-title">首尔 · 永登浦  大气监测简报</span>
+          <button class="wp-close" @click="showWeatherPanel = false">×</button>
+        </div>
+
+        <div class="weather-panel-body">
+          <!-- 主要数据 -->
+          <div class="wp-main-row">
+            <div class="wp-big-icon" :style="{ color: currentWeatherMeta.color }">
+              {{ currentWeatherMeta.icon }}
+            </div>
+            <div class="wp-main-info">
+              <div class="wp-condition">{{ currentWeatherMeta.label }}</div>
+              <div class="wp-temp" v-if="weatherData">{{ weatherData.temp }}°C</div>
+              <div class="wp-temp wp-temp-manual" v-else>手动模拟模式</div>
+              <div class="wp-desc" v-if="weatherData">WMO {{ weatherData.weather_code }} · {{ currentWeatherMeta.label }}</div>
+            </div>
+          </div>
+
+          <!-- 详细参数 -->
+          <div class="wp-stats" v-if="weatherData">
+            <div class="wp-stat">
+              <span class="wp-stat-key">体感</span>
+              <span class="wp-stat-val">{{ weatherData.feels_like }}°C</span>
+            </div>
+            <div class="wp-stat">
+              <span class="wp-stat-key">湿度</span>
+              <span class="wp-stat-val">{{ weatherData.humidity }}%</span>
+            </div>
+            <div class="wp-stat">
+              <span class="wp-stat-key">气压</span>
+              <span class="wp-stat-val">{{ weatherData.pressure }}hPa</span>
+            </div>
+            <div class="wp-stat">
+              <span class="wp-stat-key">风速</span>
+              <span class="wp-stat-val">{{ weatherData.wind_speed }}m/s</span>
+            </div>
+          </div>
+
+          <!-- 诗意提示语 -->
+          <div class="wp-tip" :style="{ borderColor: currentWeatherMeta.color + '40' }">
+            <span class="wp-tip-label">// GEO·SIGNAL</span>
+            <p class="wp-tip-text">{{ currentWeatherTip }}</p>
+          </div>
+
+          <!-- 刷新按钮 -->
+          <button class="wp-refresh" @click="fetchSeoulWeather" :disabled="isFetchingWeather">
+            {{ isFetchingWeather ? '探测中...' : '重新探测真实天气' }}
+          </button>
+        </div>
+
+        <!-- ★ 测试按钮组 -->
+        <div class="wp-test-section">
+          <span class="wp-test-label" @click="showWeatherTestBtns = !showWeatherTestBtns">
+            {{ showWeatherTestBtns ? '▾' : '▸' }} 天气效果预览
+          </span>
+          <transition name="fade-slow">
+            <div class="wp-test-btns" v-if="showWeatherTestBtns">
+              <button
+                v-for="btn in testWeatherBtns"
+                :key="btn.key"
+                class="wp-test-btn"
+                :class="{ active: weatherState === btn.key }"
+                @click="setWeatherManual(btn.key)"
+              >
+                {{ btn.label }}
+              </button>
+            </div>
+          </transition>
+        </div>
+      </div>
+    </transition>
+
     <!-- 顶部加上一个极其隐秘的观测站按钮 -->
     <header class="header">
       <span class="tracking-widest">Energy / WUSHI</span>
@@ -1097,4 +1549,276 @@ async function handleSubmitMessage() {
   0% { transform: translateY(-100%); }
   100% { transform: translateY(100%); }
 }
+
+/* =========== 天气系统 =========== */
+
+/* 画布粒子层：绝对定位铺满、不拦截点击事件 */
+.weather-canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 闪电 overlay */
+.lightning-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(200, 180, 255, 0);
+  pointer-events: none;
+  z-index: 2;
+  transition: background 0.05s;
+}
+.lightning-overlay.active {
+  background: rgba(200, 180, 255, 0.18);
+}
+
+/* ------ 各天气状态的背景色调微调 ------ */
+.container.weather-rain    { background: radial-gradient(circle at 50% 30%, rgba(10, 30, 55, 0.85) 0%, #030810 80%) !important; }
+.container.weather-drizzle { background: radial-gradient(circle at 50% 30%, rgba(10, 22, 40, 0.8) 0%, #040608 80%) !important; }
+.container.weather-snow    { background: radial-gradient(circle at 50% 30%, rgba(15, 20, 35, 0.9) 0%, #080a10 80%) !important; }
+.container.weather-thunderstorm { background: radial-gradient(circle at 50% 30%, rgba(20, 5, 40, 0.92) 0%, #050008 80%) !important; }
+.container.weather-fog     { background: radial-gradient(circle at 50% 50%, rgba(30, 35, 42, 0.9) 0%, #0d0f12 80%) !important; }
+.container.weather-clear   { background: radial-gradient(circle at 50% 30%, rgba(40, 28, 5, 0.6) 0%, #080600 80%) !important; }
+.container.weather-clouds  { background: radial-gradient(circle at 50% 30%, rgba(20, 22, 30, 0.85) 0%, #060608 80%) !important; }
+
+/* 雪天让orb带蓝白光 */
+.container.weather-snow .orb-core {
+  box-shadow: 0 0 25px rgba(180, 220, 255, 0.9), 0 0 70px rgba(150, 200, 255, 0.5) !important;
+}
+/* 雷暴让orb带紫光 */
+.container.weather-thunderstorm .orb-core {
+  box-shadow: 0 0 20px rgba(180, 100, 255, 0.9), 0 0 60px rgba(140, 60, 255, 0.5) !important;
+}
+/* 雨天orb偏蓝 */
+.container.weather-rain .orb-core,
+.container.weather-drizzle .orb-core {
+  box-shadow: 0 0 20px rgba(100, 180, 255, 0.8), 0 0 60px rgba(60, 140, 220, 0.4) !important;
+}
+
+/* ------ 天气角标（左上角常驻） ------ */
+.weather-badge {
+  position: absolute;
+  top: 5vh;
+  left: 5vw;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  z-index: 100;
+  transition: opacity 0.3s, transform 0.3s;
+  user-select: none;
+}
+.weather-badge:hover { opacity: 0.85; transform: translateX(2px); }
+
+.weather-badge-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+.weather-badge-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.weather-badge-city {
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  color: rgba(255, 255, 255, 0.3);
+}
+.weather-badge-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+}
+.weather-badge-temp {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: monospace;
+}
+
+/* ------ 天气详情面板 ------ */
+.weather-panel {
+  position: absolute;
+  top: 0; left: 0;
+  width: min(340px, 92vw);
+  height: 100%;
+  background: rgba(8, 10, 16, 0.88);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  overflow-y: auto;
+}
+
+.weather-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6vh 22px 18px 22px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+.wp-title {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.5);
+}
+.wp-close {
+  background: none; border: none; color: rgba(255,255,255,0.4);
+  font-size: 1.8rem; line-height: 1; cursor: pointer; transition: 0.3s;
+}
+.wp-close:hover { color: #fff; }
+
+.weather-panel-body {
+  padding: 24px 22px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 主信息行 */
+.wp-main-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.wp-big-icon {
+  font-size: 3rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 12px currentColor);
+  flex-shrink: 0;
+}
+.wp-main-info { display: flex; flex-direction: column; gap: 4px; }
+.wp-condition { font-size: 1rem; letter-spacing: 0.1em; font-weight: 300; }
+.wp-temp { font-size: 2rem; font-weight: 200; font-family: monospace; letter-spacing: -1px; }
+.wp-temp-manual { font-size: 0.75rem; color: rgba(255,255,255,0.3); margin-top: 4px; }
+.wp-desc { font-size: 0.7rem; color: rgba(255,255,255,0.4); letter-spacing: 0.05em; }
+
+/* 参数格 */
+.wp-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.wp-stat {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wp-stat-key { font-size: 0.6rem; color: rgba(255,255,255,0.3); letter-spacing: 0.1em; }
+.wp-stat-val { font-size: 0.9rem; font-family: monospace; color: rgba(255,255,255,0.85); }
+
+/* 诗意提示语 */
+.wp-tip {
+  border-left: 2px solid rgba(255,255,255,0.2);
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0 8px 8px 0;
+}
+.wp-tip-label {
+  font-family: monospace;
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.25);
+  display: block;
+  margin-bottom: 6px;
+  letter-spacing: 0.1em;
+}
+.wp-tip-text {
+  font-size: 0.72rem;
+  line-height: 1.9;
+  color: rgba(255,255,255,0.55);
+  margin: 0;
+  font-style: italic;
+  letter-spacing: 0.04em;
+}
+
+/* 刷新按钮 */
+.wp-refresh {
+  width: 100%;
+  padding: 11px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.wp-refresh:hover:not(:disabled) {
+  background: rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.7);
+}
+.wp-refresh:disabled { cursor: not-allowed; opacity: 0.4; }
+
+/* ------ 测试按钮组 ------ */
+.wp-test-section {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding: 16px 22px 22px 22px;
+  flex-shrink: 0;
+}
+.wp-test-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.3);
+  cursor: pointer;
+  user-select: none;
+  display: block;
+  margin-bottom: 12px;
+  transition: color 0.3s;
+}
+.wp-test-label:hover { color: rgba(255,255,255,0.6); }
+
+.wp-test-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wp-test-btn {
+  padding: 7px 13px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.5);
+  font-size: 0.68rem;
+  cursor: pointer;
+  transition: all 0.25s;
+  letter-spacing: 0.05em;
+}
+.wp-test-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.85);
+  border-color: rgba(255,255,255,0.25);
+}
+.wp-test-btn.active {
+  background: rgba(100, 160, 255, 0.15);
+  border-color: rgba(100, 160, 255, 0.5);
+  color: rgba(160, 200, 255, 0.95);
+  box-shadow: 0 0 12px rgba(100, 160, 255, 0.2);
+}
+
+/* ------ 天气面板进出动效 ------ */
+.weather-panel-slide-enter-active,
+.weather-panel-slide-leave-active {
+  transition: all 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.weather-panel-slide-enter-from,
+.weather-panel-slide-leave-to {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+/* 确保所有UI层级高于天气canvas */
+.header, .core-area, .controls { position: relative; z-index: 10; }
+.archive-layer, .summary-modal { z-index: 1000; }
 </style>
